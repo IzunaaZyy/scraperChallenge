@@ -36,7 +36,7 @@ node index.js
 2. By default, it scrapes 1 page of results for the search term "nike".
 You can change the term and number of pages in this section:
 const result = await scrapeEbayProducts('nike', 1);
-3.Output example:
+3. Output example:
 {
   "status": "success",
   "count": 10,
