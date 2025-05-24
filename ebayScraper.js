@@ -1,170 +1,97 @@
 const puppeteer = require('puppeteer');
-const cheerio = require('cheerio');
 
 async function scrapeEbayProducts(searchQuery, maxPages = 3) {
     const browser = await puppeteer.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
-    
-    try {
-        const page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-        
-        let allProducts = [];
-        let currentPage = 1;
-        let hasNextPage = true;
-        
-        while (hasNextPage && currentPage <= maxPages) {
-            const url = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(searchQuery)}&_pgn=${currentPage}`;
-            console.log(`Scraping page ${currentPage}: ${url}`);
-            
-            await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+
+    const page = await browser.newPage();
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+
+    let allProducts = new Map();
+    let currentPage = 1;
+
+    while (currentPage <= maxPages) {
+        const url = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(searchQuery)}&_pgn=${currentPage}`;
+        console.log(`Scraping page ${currentPage}: ${url}`);
+
+        try {
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
             await page.waitForSelector('.s-item__wrapper', { timeout: 5000 });
-            
-            // Get all product links on the page
-            const productLinks = await page.$$eval('.s-item__wrapper .s-item__link', links => 
-                links.map(link => link.href).filter(href => !href.includes('google'))
+
+            const productLinks = await page.$$eval('.s-item__wrapper .s-item__link', links =>
+                links.map(link => link.href).filter((v, i, a) => a.indexOf(v) === i)
             );
-            
-            // Process each product
+
             for (const link of productLinks) {
-                try {
-                    const productData = await scrapeProductDetail(browser, link);
-                    if (productData) {
-                        allProducts.push(productData);
-                    }
-                } catch (error) {
-                    console.error(`Error scraping product at ${link}:`, error.message);
+                if (allProducts.has(link)) continue;
+
+                const data = await scrapeProductDetail(page, link);
+                if (data) {
+                    allProducts.set(link, data);
                 }
             }
-            
-            // Check if there's a next page
-            const nextPageExists = await page.evaluate(() => {
-                const nextButton = document.querySelector('.pagination__next');
-                return nextButton && !nextButton.disabled;
-            });
-            
-            hasNextPage = nextPageExists;
+
+            const hasNext = await page.$eval('.pagination__next', el => !el.disabled).catch(() => false);
+            if (!hasNext) break;
+
             currentPage++;
-            
-            // Add delay between pages to avoid rate limiting
-            if (hasNextPage && currentPage <= maxPages) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
+        } catch (err) {
+            console.warn(`Failed scraping page ${currentPage}: ${err.message}`);
+            break;
         }
-        
-        return {
-            status: 'success',
-            count: allProducts.length,
-            products: allProducts
-        };
-        
-    } catch (error) {
-        console.error('Error during scraping:', error);
-        return {
-            status: 'error',
-            message: error.message
-        };
-    } finally {
-        await browser.close();
     }
+
+    await browser.close();
+
+    return {
+        status: 'success',
+        count: allProducts.size,
+        products: Array.from(allProducts.values())
+    };
 }
 
-async function scrapeProductDetail(browser, productUrl) {
-    const page = await browser.newPage();
+async function scrapeProductDetail(page, productUrl) {
     try {
-        await page.goto(productUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-        
-        // Wait for critical elements to load
+        await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         await page.waitForSelector('#mainContent', { timeout: 5000 });
-        
-        // Extract data using AI-like analysis of DOM structure
-        const productData = await page.evaluate(() => {
-            // Helper function to clean text
-            const cleanText = (text) => text ? text.trim().replace(/\s+/g, ' ') : '-';
-            
-            // Extract name
-            let name = '-';
-            const nameSelectors = [
-                'h1.x-item-title__mainTitle span', 
-                'h1.product-title',
-                'h1.item-title'
-            ];
-            for (const selector of nameSelectors) {
-                const el = document.querySelector(selector);
-                if (el && el.textContent.trim()) {
-                    name = cleanText(el.textContent);
-                    break;
+
+        return await page.evaluate((url) => {
+            const clean = text => text?.trim().replace(/\s+/g, ' ') || '-';
+
+            const getFirst = (selectors) => {
+                for (const sel of selectors) {
+                    const el = document.querySelector(sel);
+                    if (el && el.textContent?.trim()) return clean(el.textContent);
                 }
-            }
-            
-            // Extract price
-            let price = '-';
-            const priceSelectors = [
-                'div.x-price-primary span',
-                'span.ux-textspans',
-                'span.item-price'
-            ];
-            for (const selector of priceSelectors) {
-                const el = document.querySelector(selector);
-                if (el && el.textContent.trim()) {
-                    price = cleanText(el.textContent.replace(/[^\d.,]/g, ''));
-                    break;
-                }
-            }
-            
-            // Extract description
-            let description = '-';
-            const descSelectors = [
-                'div.d-item-description',
-                'div.item-description',
-                'div.product-description'
-            ];
-            for (const selector of descSelectors) {
-                const el = document.querySelector(selector);
-                if (el && el.textContent.trim()) {
-                    description = cleanText(el.textContent);
-                    break;
-                }
-            }
-            
-            // Extract image URL
-            let imageUrl = '-';
-            const imgSelectors = [
-                'div.ux-image-carousel-item img',
-                'div.image img',
-                'img.img.img300'
-            ];
-            for (const selector of imgSelectors) {
-                const el = document.querySelector(selector);
-                if (el && el.src) {
-                    imageUrl = el.src;
-                    break;
-                }
-            }
-            
-            return {
-                name,
-                price,
-                description,
-                imageUrl,
-                productUrl
+                return '-';
             };
-        });
-        
-        return productData;
-        
-    } catch (error) {
-        console.error(`Error scraping product detail at ${productUrl}:`, error.message);
+
+            const getImage = (selectors) => {
+                for (const sel of selectors) {
+                    const el = document.querySelector(sel);
+                    if (el?.src) return el.src;
+                }
+                return '-';
+            };
+
+            return {
+                name: getFirst(['h1.x-item-title__mainTitle span', 'h1.product-title', 'h1.item-title']),
+                price: getFirst(['div.x-price-primary span', 'span.ux-textspans', 'span.item-price']).replace(/[^\d.,]/g, ''),
+                description: getFirst(['div.d-item-description', 'div.item-description', 'div.product-description']),
+                imageUrl: getImage(['div.ux-image-carousel-item img', 'div.image img', 'img.img.img300']),
+                productUrl: url
+            };
+        }, productUrl);
+    } catch (err) {
+        console.warn(`Detail error @ ${productUrl}: ${err.message}`);
         return null;
-    } finally {
-        await page.close();
     }
 }
 
 // Example usage
 (async () => {
-    const result = await scrapeEbayProducts('iphone 13', 2); // Scrape 2 pages
+    const result = await scrapeEbayProducts('nike', 1);
     console.log(JSON.stringify(result, null, 2));
 })();
