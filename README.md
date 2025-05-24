@@ -1,7 +1,7 @@
 eBay Product Scraper
 This project is a simple web scraping tool built with Node.js and Puppeteer to extract product data from eBay based on a search query.
 
-Features
+✅ Features
 Scrapes product information including:
 
 Name (title)
@@ -20,12 +20,12 @@ Avoids duplicate URLs using a Map structure.
 
 Logs scraping progress to the console.
 
-Prerequisites
+📦 Prerequisites
 Node.js (v16 or later)
 
 npm (v7 or later)
 
-Installation
+🔧 Installation
 Clone the repository:
 
 git clone <repository-url>
@@ -35,7 +35,7 @@ Install dependencies:
 
 npm install puppeteer
 
-Usage
+🚀 Usage
 Run the script:
 
 node index.js
@@ -61,20 +61,20 @@ Example output:
 ]
 }
 
-Project Structure
+📂 Project Structure
 ebay-product-scraper/
 ├── index.js # Main file containing the scraping logic
 └── README.md # Project documentation
 
-Dependencies
+🧪 Dependencies
 Puppeteer – Headless Chrome for web scraping.
 
-Notes
+⚠️ Notes
 This script is for educational and personal use only.
 
 Always comply with eBay's Terms of Service.
 
 eBay's website structure may change, so selectors may need to be updated over time.
 
-Author
-Created by [Fauzi Maulana].
+👨‍💻 Author
+Created by Fauzi Maulana.
